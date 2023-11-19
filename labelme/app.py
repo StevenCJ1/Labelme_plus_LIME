@@ -7,6 +7,10 @@ import os
 import os.path as osp
 import re
 import webbrowser
+import numpy as np
+import skimage.io
+import skimage.color
+import skimage.segmentation
 
 import imgviz
 import natsort
@@ -34,6 +38,12 @@ from labelme.widgets import LabelListWidgetItem
 from labelme.widgets import ToolBar
 from labelme.widgets import UniqueLabelQListWidget
 from labelme.widgets import ZoomWidget
+
+
+from labelme.lime import predict
+from labelme.lime import shape2label
+from labelme.lime import explain_lime
+
 
 # FIXME
 # - [medium] Set max zoom value to something big enough for FitWidth/Window
@@ -108,6 +118,66 @@ class MainWindow(QtWidgets.QMainWindow):
             fit_to_content=self._config["fit_to_content"],
             flags=self._config["label_flags"],
         )
+
+        #------------------------------------------------------------------------------#
+        self.pred_input_num = 5
+        # Create a QDockWidget for predictions
+        self.pred_dock = QtWidgets.QDockWidget(self.tr("Predictions"), self)
+        self.pred_dock.setObjectName("Predictions from Explained Model")
+        self.pred_widget = QtWidgets.QWidget()
+
+        # Initialize UI components for the new widget
+        self.ask_class = QtWidgets.QLabel("How many predictions do you want to get? (default 5) ")
+        self.pred_input_line = QtWidgets.QLineEdit()
+        self.show_pred_button = QtWidgets.QPushButton("Show Predictions")
+        self.show_pred_button.setEnabled(False)  # Initially disable the button
+        self.show_pred_button.clicked.connect(self.predictImage)
+        self.info_label = QtWidgets.QLabel("")
+        # Set up layout for the new widget
+        layout_pred = QtWidgets.QVBoxLayout()
+        sub_layout_pred = QtWidgets.QHBoxLayout()
+        #layout.addWidget(label)
+        sub_layout_pred.addWidget(self.ask_class)  # Include the QLabel in the layout
+        sub_layout_pred.addWidget(self.pred_input_line)
+        sub_layout_pred.addWidget(self.show_pred_button)  # Include the QPushButton in the layout
+        layout_pred.addLayout(sub_layout_pred)
+        layout_pred.addWidget(self.info_label)
+
+        self.pred_input_line.textChanged.connect(self.updatePredButtonState)
+        # Set the layout for the new widget
+        self.pred_widget.setLayout(layout_pred)
+        self.pred_dock.setWidget(self.pred_widget)
+
+        #------------------------------------------------------------------------------#
+
+        self.lime_dock = QtWidgets.QDockWidget(self.tr("LIME"), self)
+        self.lime_dock.setObjectName("LIME")
+        self.lime_widget = QtWidgets.QWidget()
+
+        self.lime_result = QtWidgets.QLabel("")
+        self.lime_title = QtWidgets.QLabel("Explain which prediction results: ")
+        self.lime_select_input = QtWidgets.QLineEdit()
+        self.lime_button = QtWidgets.QPushButton("Explain")
+        self.lime_button.setEnabled(False)
+        self.lime_button.clicked.connect(self.limeImage)
+
+        layout_lime = QtWidgets.QVBoxLayout()
+        sub_layout_lime = QtWidgets.QHBoxLayout()
+
+        sub_layout_lime.addWidget(self.lime_title)
+        sub_layout_lime.addWidget(self.lime_select_input)
+        sub_layout_lime.addWidget(self.lime_button)
+        layout_lime.addLayout(sub_layout_lime)
+        layout_lime.addWidget(self.lime_result)
+
+        # Connect the textChanged signal of the QLineEdit to a slot
+        self.lime_select_input.textChanged.connect(self.updateLimeButtonState)
+
+
+        self.lime_widget.setLayout(layout_lime)
+        self.lime_dock.setWidget(self.lime_widget)
+
+        #------------------------------------------------------------------------------#
 
         self.labelList = LabelListWidget()
         self.lastOpenDir = None
@@ -209,6 +279,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.addDockWidget(Qt.RightDockWidgetArea, self.label_dock)
         self.addDockWidget(Qt.RightDockWidgetArea, self.shape_dock)
         self.addDockWidget(Qt.RightDockWidgetArea, self.file_dock)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.pred_dock)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.lime_dock)
 
         # Actions
         action = functools.partial(utils.newAction, self)
@@ -719,6 +791,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.label_dock.toggleViewAction(),
                 self.shape_dock.toggleViewAction(),
                 self.file_dock.toggleViewAction(),
+                self.pred_dock.toggleViewAction(),
+                self.lime_dock.toggleViewAction(),
                 None,
                 fill_drawing,
                 None,
@@ -1145,6 +1219,8 @@ class MainWindow(QtWidgets.QMainWindow):
         shape.group_id = group_id
         shape.description = description
 
+        #self.lime_button.setEnabled(True)
+
         self._update_shape_color(shape)
         if shape.group_id is None:
             item.setText(
@@ -1363,6 +1439,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 items[0].setCheckState(Qt.Checked)
             # disable allows next and previous image to proceed
             # self.filename = filename
+            #self.lime_button.setEnabled(True)
             return True
         except LabelFileError as e:
             self.errorMessage(
@@ -1412,6 +1489,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         position MUST be in global coordinates.
         """
+        #self.lime_button.setEnabled(True)
         items = self.uniqLabelList.selectedItems()
         text = None
         if items:
@@ -1670,6 +1748,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.toggleActions(True)
         self.canvas.setFocus()
         self.status(str(self.tr("Loaded %s")) % osp.basename(str(filename)))
+        self.show_pred_button.setEnabled(True)
         return True
 
     def resizeEvent(self, event):
@@ -2149,3 +2228,73 @@ class MainWindow(QtWidgets.QMainWindow):
                     images.append(relativePath)
         images = natsort.os_sorted(images)
         return images
+
+    def updatePredButtonState(self):
+        # Enable or disable the button based on whether there is text in the QLineEdit
+        self.show_pred_button.setEnabled(bool(self.pred_input_line.text()))
+
+
+    def predictImage(self):
+        if bool(self.pred_input_line.text()):
+            self.pred_input_num = self.pred_input_line.text()
+            num_top_guess = int(self.pred_input_num)
+        else:
+            num_top_guess = 5
+        new_preds_list = []
+        if self.image.isNull():
+            logger.warning(
+                "No Image"
+            )
+        else:
+            preds_list = predict.explained_module_predict(self.image, num_top_guess=num_top_guess)
+            #show_preds = f"show the type of image: {preds_list}"
+
+            for i, pred_tuple in enumerate(preds_list):
+                pred_class = pred_tuple[1]
+                pred_prob = pred_tuple[2]
+                pred = str(i + 1) + ". " + pred_class + "  " + str(pred_prob)
+                new_preds_list.append(pred)
+                show_preds = "\n".join(new_preds_list)
+
+        self.info_label.setText(show_preds)
+
+
+    def updateLimeButtonState(self):
+        # Enable or disable the button based on whether there is text in the QLineEdit
+        self.lime_button.setEnabled(bool(self.lime_select_input.text()))
+
+    def limeImage(self):
+        input_i_class = self.lime_select_input.text()
+        def format_shape(s):
+            data = s.other_data.copy()
+            data.update(
+                dict(
+                    label=s.label.encode("utf-8") if PY2 else s.label,
+                    points=[(p.x(), p.y()) for p in s.points],
+                    group_id=s.group_id,
+                    description=s.description,
+                    shape_type=s.shape_type,
+                    flags=s.flags,
+                )
+            )
+            return data
+
+        shapes = [format_shape(item.shape()) for item in self.labelList]
+
+        image_rgba = predict.convertQImageToMat(self.image)
+
+        if np.shape(image_rgba)[2] != 3:
+            image = skimage.color.rgba2rgb(image_rgba)
+        else:
+            image = image_rgba
+
+        data = dict(
+            shapes=shapes,
+            image_numpy=image,
+        )
+        lbl, label_names = shape2label.convert_shapes(data)
+        explain_result = explain_lime.inter_lime(image, lbl, label_names, int(input_i_class) - 1, 5)
+
+        self.lime_result.setText(explain_result)
+
+
