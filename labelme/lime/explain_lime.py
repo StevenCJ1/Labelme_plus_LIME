@@ -148,7 +148,7 @@ def inter_lime(image, lbl, label_names, i_class, top_guesses):
     image = skimage.transform.resize(image, (299, 299))
     image = (image - 0.5) * 2  # Inception pre-processing
     num_top_features = 2  # the number of top superpixels(coefficients) you want to see
-    num_perturb = 50  # number of perturbed points
+    num_perturb = 150  # number of perturbed points
     perturb_art = 0  # 0 -> random; 1 -> exactly
     explained_model = keras.applications.inception_v3.InceptionV3()
 
@@ -226,8 +226,12 @@ def inter_lime(image, lbl, label_names, i_class, top_guesses):
     for i in range(num_inter_feature):
         temp_str = "coefficient of label " + str(inter_label_name[i + 1]) + ": " + str(coeff[i])
         inter_sp_coeff.append(temp_str)
-        show_explain = "\n".join(inter_sp_coeff)
+        #show_explain = "\n".join(inter_sp_coeff)
 
+    top_feature = np.argsort(coeff)[-1:]
+    temp_str = "coefficient of top 1 class: " + str(coeff[top_feature])
+    inter_sp_coeff.append(temp_str)
+    show_explain = "\n".join(inter_sp_coeff)
     return show_explain
 
 

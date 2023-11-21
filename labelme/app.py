@@ -159,7 +159,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.lime_select_input = QtWidgets.QLineEdit()
         self.lime_button = QtWidgets.QPushButton("Explain")
         self.lime_button.setEnabled(False)
-        self.lime_button.clicked.connect(self.limeImage)
+        self.lime_button.clicked.connect(self.startLimeThread)
 
         layout_lime = QtWidgets.QVBoxLayout()
         sub_layout_lime = QtWidgets.QHBoxLayout()
@@ -2295,6 +2295,23 @@ class MainWindow(QtWidgets.QMainWindow):
         lbl, label_names = shape2label.convert_shapes(data)
         explain_result = explain_lime.inter_lime(image, lbl, label_names, int(input_i_class) - 1, 5)
 
-        self.lime_result.setText(explain_result)
+        #self.lime_result.setText(explain_result)
+        return explain_result
+
+    def startLimeThread(self):
+        # 创建并启动线程
+        self.lime_thread = LimeThread(parent=self)
+        self.lime_thread.finished.connect(self.handleLimeResult)
+        self.lime_thread.start()
+
+    def handleLimeResult(self, result):
+        # 处理线程完成后的结果
+        self.lime_result.setText(result)
 
 
+class LimeThread(QtCore.QThread):
+    finished = QtCore.Signal(str)
+
+    def run(self):
+        result = self.parent().limeImage()
+        self.finished.emit(result)
