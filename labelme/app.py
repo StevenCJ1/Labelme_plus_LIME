@@ -8,6 +8,10 @@ import os.path as osp
 import re
 import webbrowser
 import numpy as np
+import keras
+from keras.applications.imagenet_utils import decode_predictions
+import sklearn.metrics
+from sklearn.linear_model import LinearRegression
 import skimage.io
 import skimage.color
 import skimage.segmentation
@@ -160,6 +164,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.lime_button = QtWidgets.QPushButton("Explain")
         self.lime_button.setEnabled(False)
         self.lime_button.clicked.connect(self.startLimeThread)
+        # 添加 QProgressBar
+        self.progress_bar = QtWidgets.QProgressBar(self)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setStyleSheet("QProgressBar {border: 2px solid grey;border-radius:8px;padding:1px}"
+                                       "QProgressBar::chunk {background:yellow}")
+
 
         layout_lime = QtWidgets.QVBoxLayout()
         sub_layout_lime = QtWidgets.QHBoxLayout()
@@ -168,7 +178,9 @@ class MainWindow(QtWidgets.QMainWindow):
         sub_layout_lime.addWidget(self.lime_select_input)
         sub_layout_lime.addWidget(self.lime_button)
         layout_lime.addLayout(sub_layout_lime)
+        layout_lime.addWidget(self.progress_bar)  # 将进度条添加到布局中
         layout_lime.addWidget(self.lime_result)
+
 
         # Connect the textChanged signal of the QLineEdit to a slot
         self.lime_select_input.textChanged.connect(self.updateLimeButtonState)
@@ -2301,17 +2313,153 @@ class MainWindow(QtWidgets.QMainWindow):
     def startLimeThread(self):
         # 创建并启动线程
         self.lime_thread = LimeThread(parent=self)
-        self.lime_thread.finished.connect(self.handleLimeResult)
+        self.lime_thread.change_value.connect(self.setProgressVal)
+        self.lime_thread.finished.connect(self.setLimeResultVal)
         self.lime_thread.start()
 
-    def handleLimeResult(self, result):
+    def setProgressVal(self, val):
         # 处理线程完成后的结果
+        self.progress_bar.setValue(val)
+
+    def setLimeResultVal(self, result):
         self.lime_result.setText(result)
 
-
 class LimeThread(QtCore.QThread):
+    # Create a counter thread
+    change_value = QtCore.Signal(int)
     finished = QtCore.Signal(str)
-
     def run(self):
-        result = self.parent().limeImage()
-        self.finished.emit(result)
+        self.change_value.emit(1)
+
+        input_i_class = self.parent().lime_select_input.text()
+        def format_shape(s):
+            data = s.other_data.copy()
+            data.update(
+                dict(
+                    label=s.label.encode("utf-8") if PY2 else s.label,
+                    points=[(p.x(), p.y()) for p in s.points],
+                    group_id=s.group_id,
+                    description=s.description,
+                    shape_type=s.shape_type,
+                    flags=s.flags,
+                )
+            )
+            return data
+
+        shapes = [format_shape(item.shape()) for item in self.parent().labelList]
+
+        image_rgba = predict.convertQImageToMat(self.parent().image)
+
+        if np.shape(image_rgba)[2] != 3:
+            image = skimage.color.rgba2rgb(image_rgba)
+        else:
+            image = image_rgba
+
+        data = dict(
+            shapes=shapes,
+            image_numpy=image,
+        )
+        lbl, label_names = shape2label.convert_shapes(data)
+
+        self.change_value.emit(2)
+
+        #explain_result = explain_lime.inter_lime(image, lbl, label_names, int(input_i_class) - 1, 5)
+        i_class = int(input_i_class) - 1  # set the explained class (from 0)
+        top_guesses = 5
+        image = skimage.transform.resize(image, (299, 299))
+        image = (image - 0.5) * 2  # Inception pre-processing
+        num_top_features = 2  # the number of top superpixels(coefficients) you want to see
+        num_perturb = 150  # number of perturbed points
+        perturb_art = 0  # 0 -> random; 1 -> exactly
+        explained_model = keras.applications.inception_v3.InceptionV3()
+
+        '''
+        module prediction
+        '''
+        #np.random.seed(222)
+        preds = explained_model.predict(image[np.newaxis, :, :, :], verbose = 0)
+        top_pred_classes = preds[0].argsort()[-top_guesses:][::-1]
+
+        self.change_value.emit(3)
+        '''
+        LIME-segmentation the image
+        function: slic segmentation
+        '''
+        # set a do-while loop to avoid the too few num_SPs
+        num_SPs = explain_lime.get_num_segmentSPs(lbl, label_names)
+        segment_SPs = skimage.segmentation.slic(image, n_segments=num_SPs, compactness=10)
+        temp_num_SPs = num_SPs
+        while np.unique(segment_SPs).shape[0] < num_SPs:
+            temp_num_SPs = temp_num_SPs + temp_num_SPs // 2
+            segment_SPs = skimage.segmentation.slic(image, n_segments=temp_num_SPs, compactness=10)
+
+        self.change_value.emit(4)
+        '''
+        mix segmentation from slic and interactively segmentation
+        '''
+        # recover superpixels with interactively segmentation
+        interactive_SPs, inter_label_name = explain_lime.mix_segment(lbl, label_names, segment_SPs)
+
+        final_num_SPs = np.unique(interactive_SPs).shape[0]
+
+
+        '''
+        perturbation
+        '''
+
+        if perturb_art == 0:
+            # random perturbation
+            perturbations = np.random.binomial(1, 0.5, size=(num_perturb, final_num_SPs))
+            perturbations[0, :] = 1
+        else:
+            # exactly perturbation
+            rows = 2 ** final_num_SPs
+            cols = final_num_SPs
+            binary_matrix = [[1 if ((i >> j) & 1) else 0 for j in range(cols)] for i in range(rows)]
+            perturbations = np.array(binary_matrix)
+
+        self.change_value.emit(5)
+        # new training images for LIME
+        predictions = []
+        for cnt, pert in enumerate(perturbations):
+            perturbedImage = explain_lime.perturb_image(image, pert, interactive_SPs)
+            pred = explained_model.predict(perturbedImage[np.newaxis, :, :, :], verbose = 0)
+            predictions.append(pred)
+
+            self.change_value.emit(int((cnt + 5) * 100 / (num_perturb - 5)))
+        predictions = np.array(predictions)
+
+        # calculate the distance
+        original_image = np.ones(final_num_SPs)[np.newaxis, :]  # Perturbation with all superpixels enabled
+        distances = sklearn.metrics.pairwise_distances(perturbations, original_image, metric='cosine').ravel()
+        kernel_width = 0.25
+        weights = np.sqrt(np.exp(-(distances ** 2) / kernel_width ** 2))
+
+        '''
+        train the explained module
+        '''
+        inter_sp_coeff = []
+        explained_class = top_pred_classes[i_class]
+        explained_class_name = decode_predictions(preds)[0][i_class][1]
+        simple_model = LinearRegression()
+        simple_model.fit(X=perturbations, y=predictions[:, :, explained_class], sample_weight=weights)
+        coeff = simple_model.coef_[0]
+
+        temp_str = 'Explaining prediction: ' + str(explained_class_name)
+        inter_sp_coeff.append(temp_str)
+
+        num_inter_feature = len(inter_label_name[:]) - 1
+        for i in range(num_inter_feature):
+            temp_str = "coefficient of label " + str(inter_label_name[i + 1]) + ": " + str(coeff[i])
+            inter_sp_coeff.append(temp_str)
+            #show_explain = "\n".join(inter_sp_coeff)
+
+        top_feature = np.argsort(coeff)[-1:]
+        temp_str = "coefficient of top 1 class: " + str(coeff[top_feature])
+        inter_sp_coeff.append(temp_str)
+        explain_result = "\n".join(inter_sp_coeff)
+        self.change_value.emit(100)
+
+
+
+        self.finished.emit(explain_result)
