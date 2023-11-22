@@ -37,7 +37,7 @@ def perturb_image(img, perturbation, segments):
     return perturbed_image
 
 
-def mix_segment(lbl, label_names, superpixels):
+def mix_segment(lbl, label_names, superpixels, shape):
     """
     Mix the segmentation from SLIC and labelme.exe(users)
 
@@ -54,7 +54,7 @@ def mix_segment(lbl, label_names, superpixels):
     # seq[start:stop:step] => a slice from start to stop, stepping step each time.
     for i in np.unique(interactive_SPs)[1:][::-1]:
         separationSPs = np.where(interactive_SPs == i, i, 0)
-        separationSPs = skimage.transform.resize(separationSPs, (299, 299))
+        separationSPs = skimage.transform.resize(separationSPs, (shape, shape))
         separationSPs = np.where(separationSPs == 0, 1, 0)
         accumulateSPs = (accumulateSPs + 1) * separationSPs  # plus 1 to ensure dont cover originally segmentation 0
 
@@ -70,7 +70,7 @@ def mix_segment(lbl, label_names, superpixels):
     return accumulateSPs, interactive_names
 
 
-def get_num_segmentSPs(lbl, label_names):
+def get_num_segmentSPs(lbl, label_names, shape):
     '''
     Set the number of superpixels that SLIC should segment
     The size of interactive superpixels should same as SLIC superpixels.
@@ -85,10 +85,10 @@ def get_num_segmentSPs(lbl, label_names):
     sizeInterSpList = []
     for i in np.unique(interactive_SPs)[1:]:
         separationSPs = np.where(interactive_SPs == i, i, 0)
-        separationSPs = skimage.transform.resize(separationSPs, (299, 299))
+        separationSPs = skimage.transform.resize(separationSPs, (shape, shape))
         sizeInterSp = np.count_nonzero(separationSPs)
         sizeInterSpList.append(sizeInterSp)
-    return (299 * 299) // np.mean(sizeInterSpList)
+    return (shape * shape) // np.mean(sizeInterSpList)
 
 
 def get_image_with_mask(img, mask, segments, coefficients, mask_features):

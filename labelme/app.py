@@ -47,6 +47,7 @@ from labelme.widgets import ZoomWidget
 from labelme.lime import predict
 from labelme.lime import shape2label
 from labelme.lime import explain_lime
+from labelme.lime import explained_model
 
 
 # FIXME
@@ -131,7 +132,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pred_widget = QtWidgets.QWidget()
 
         # Initialize UI components for the new widget
-        self.ask_class = QtWidgets.QLabel("How many predictions do you want to get? (default 5) ")
+        self.ask_class = QtWidgets.QLabel("How many predictions do you want to get? ")
         self.pred_input_line = QtWidgets.QLineEdit()
         self.show_pred_button = QtWidgets.QPushButton("Show Predictions")
         self.show_pred_button.setEnabled(False)  # Initially disable the button
@@ -850,10 +851,31 @@ class MainWindow(QtWidgets.QMainWindow):
                 name=self._selectAiModelComboBox.currentText()
             )
         )
-        selectAiModelLabel = QtWidgets.QLabel(self.tr("AI Model"))
+        selectAiModelLabel = QtWidgets.QLabel(self.tr("Segement AI Model"))
         selectAiModelLabel.setAlignment(QtCore.Qt.AlignCenter)
         selectAiModelLabel.setFont(QtGui.QFont(None, 10))
         selectAiModel.defaultWidget().layout().addWidget(selectAiModelLabel)
+
+        #-----------------------------------------------------------
+        selcetExplainedModel = QtWidgets.QWidgetAction(self)
+        selcetExplainedModel.setDefaultWidget(QtWidgets.QWidget())
+        selcetExplainedModel.defaultWidget().setLayout(QtWidgets.QVBoxLayout())
+
+        self._selectExplainedModelBox = QtWidgets.QComboBox()
+        selcetExplainedModel.defaultWidget().layout().addWidget(
+            self._selectExplainedModelBox
+        )
+        self._selectExplainedModelBox.addItems([model.name for model in explained_model.MODELS])
+        self._selectExplainedModelBox.setCurrentIndex(0)
+
+
+        selectExplainedModelLabel = QtWidgets.QLabel(self.tr("Explained Model"))
+        selectExplainedModelLabel.setAlignment(QtCore.Qt.AlignCenter)
+        selectExplainedModelLabel.setFont(QtGui.QFont(None, 10))
+        selcetExplainedModel.defaultWidget().layout().addWidget(selectExplainedModelLabel)
+        #----------------------------------------------------------------------------
+
+
 
         self.tools = self.toolbar("Tools")
         self.actions.tool = (
@@ -877,6 +899,8 @@ class MainWindow(QtWidgets.QMainWindow):
             fitWidth,
             None,
             selectAiModel,
+            None,
+            selcetExplainedModel
         )
 
         self.statusBar().showMessage(str(self.tr("%s started.")) % __appname__)
@@ -2260,7 +2284,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 "No Image"
             )
         else:
-            preds_list = predict.explained_module_predict(self.image, num_top_guess=num_top_guess)
+            idx = self._selectExplainedModelBox.currentIndex()
+            name = self._selectExplainedModelBox.currentText()
+            model = self.selectExplainedModel(name)
+            shape = explained_model.MODELS[idx].shape
+            preds_list = predict.explained_module_predict(self.image, num_top_guess=num_top_guess, model = model, shape = shape)
             #show_preds = f"show the type of image: {preds_list}"
 
             for i, pred_tuple in enumerate(preds_list):
@@ -2326,6 +2354,26 @@ class MainWindow(QtWidgets.QMainWindow):
     def setLimeResultVal(self, result):
         self.lime_result.setText(result)
 
+    def selectExplainedModel(self, name):
+        match name:
+            case "InceptionV3":
+                return keras.applications.InceptionV3()
+            case "InceptionResNetV2":
+                return keras.applications.InceptionResNetV2()
+            case "Xception":
+                return keras.applications.Xception()
+            case "ResNet50":
+                return keras.applications.ResNet50()
+            case "ResNet101":
+                return keras.applications.ResNet101()
+            case "ResNet152V2":
+                return keras.applications.ResNet152V2()
+            case "MobileNet":
+                return keras.applications.MobileNet()
+            case "MobileNetV2":
+                return keras.applications.MobileNetV2()
+
+
 class LimeThread(QtCore.QThread):
     # Create a counter thread
     change_value = QtCore.Signal(int)
@@ -2365,21 +2413,27 @@ class LimeThread(QtCore.QThread):
 
         self.change_value.emit(2)
 
+        idx = self.parent()._selectExplainedModelBox.currentIndex()
+        name = self.parent()._selectExplainedModelBox.currentText()
+        model_fun = self.parent().selectExplainedModel(name)
+        shape = explained_model.MODELS[idx].shape
+
+
         #explain_result = explain_lime.inter_lime(image, lbl, label_names, int(input_i_class) - 1, 5)
         i_class = int(input_i_class) - 1  # set the explained class (from 0)
         top_guesses = 5
-        image = skimage.transform.resize(image, (299, 299))
+        image = skimage.transform.resize(image, (shape, shape))
         image = (image - 0.5) * 2  # Inception pre-processing
         num_top_features = 2  # the number of top superpixels(coefficients) you want to see
         num_perturb = 150  # number of perturbed points
         perturb_art = 0  # 0 -> random; 1 -> exactly
-        explained_model = keras.applications.inception_v3.InceptionV3()
+        #explained_model = keras.applications.inception_v3.InceptionV3()
 
         '''
         module prediction
         '''
         #np.random.seed(222)
-        preds = explained_model.predict(image[np.newaxis, :, :, :], verbose = 0)
+        preds = model_fun.predict(image[np.newaxis, :, :, :], verbose = 0)
         top_pred_classes = preds[0].argsort()[-top_guesses:][::-1]
 
         self.change_value.emit(3)
@@ -2388,7 +2442,7 @@ class LimeThread(QtCore.QThread):
         function: slic segmentation
         '''
         # set a do-while loop to avoid the too few num_SPs
-        num_SPs = explain_lime.get_num_segmentSPs(lbl, label_names)
+        num_SPs = explain_lime.get_num_segmentSPs(lbl, label_names, shape)
         segment_SPs = skimage.segmentation.slic(image, n_segments=num_SPs, compactness=10)
         temp_num_SPs = num_SPs
         while np.unique(segment_SPs).shape[0] < num_SPs:
@@ -2400,7 +2454,7 @@ class LimeThread(QtCore.QThread):
         mix segmentation from slic and interactively segmentation
         '''
         # recover superpixels with interactively segmentation
-        interactive_SPs, inter_label_name = explain_lime.mix_segment(lbl, label_names, segment_SPs)
+        interactive_SPs, inter_label_name = explain_lime.mix_segment(lbl, label_names, segment_SPs, shape)
 
         final_num_SPs = np.unique(interactive_SPs).shape[0]
 
@@ -2425,7 +2479,7 @@ class LimeThread(QtCore.QThread):
         predictions = []
         for cnt, pert in enumerate(perturbations):
             perturbedImage = explain_lime.perturb_image(image, pert, interactive_SPs)
-            pred = explained_model.predict(perturbedImage[np.newaxis, :, :, :], verbose = 0)
+            pred = model_fun.predict(perturbedImage[np.newaxis, :, :, :], verbose = 0)
             predictions.append(pred)
 
             self.change_value.emit(int((cnt + 5) * 100 / (num_perturb - 5)))

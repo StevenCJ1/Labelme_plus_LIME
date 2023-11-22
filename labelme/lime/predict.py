@@ -25,8 +25,8 @@ def convertQImageToMat(incomingImage):
     arr = np.array(ptr).reshape(height, width, 4)  #  Copies the data
     return arr
 
-def explained_module_predict(img, num_top_guess):
-    explained_module = keras.applications.inception_v3.InceptionV3()
+def explained_module_predict(img, num_top_guess, model, shape):
+    explained_module = model
     top_guesses = num_top_guess  # Integer, how many top-guesses to return.
 
 
@@ -37,7 +37,7 @@ def explained_module_predict(img, num_top_guess):
     else:
         image = image_rgba
 
-    image = skimage.transform.resize(image, (299, 299))
+    image = skimage.transform.resize(image, (shape, shape))
     image = (image - 0.5) * 2  # Inception pre-processing
 
     preds = explained_module.predict(image[np.newaxis, :, :, :], verbose = 0)
