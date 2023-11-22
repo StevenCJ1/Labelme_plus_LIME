@@ -198,7 +198,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.lime_seg_title = QtWidgets.QLabel("Interactively Segement")
         self.lime_result_title = QtWidgets.QLabel("Explain Result")
         self.lime_seg_img = QtWidgets.QLabel()
-        self.lime_result_img = QtWidgets.QLabel()
+        self.lime_result1_img = QtWidgets.QLabel()
+        self.lime_result2_img = QtWidgets.QLabel()
 
         #layout_title = QtWidgets.QHBoxLayout()
         layout_img = QtWidgets.QHBoxLayout()
@@ -207,8 +208,8 @@ class MainWindow(QtWidgets.QMainWindow):
         #layout_title.addWidget(self.lime_seg_title)
         #layout_title.addWidget(self.lime_result_title)
         layout_img.addWidget(self.lime_seg_img)
-        layout_img.addWidget(self.lime_result_img)
-
+        layout_img.addWidget(self.lime_result1_img)
+        layout_img.addWidget(self.lime_result2_img)
         #layout_lime_img.addLayout(layout_title)
         layout_lime_img.addLayout(layout_img)
         #layout_lime_img.addStretch(1)
@@ -2377,7 +2378,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.lime_thread = LimeThread(parent=self)
         self.lime_thread.change_value.connect(self.setProgressVal)
         self.lime_thread.seg_img.connect(self.setSegImage)
-        self.lime_thread.result_img.connect(self.setResutlImage)
+        self.lime_thread.result1_img.connect(self.setResutl1Image)
+        self.lime_thread.result2_img.connect(self.setResutl2Image)
         self.lime_thread.finished.connect(self.setLimeResultVal)
 
         self.lime_thread.start()
@@ -2396,13 +2398,19 @@ class MainWindow(QtWidgets.QMainWindow):
             self.lime_seg_img.setPixmap(pixmap)
             self.lime_seg_img.setScaledContents(True)
 
-    def setResutlImage(self, images):
+    def setResutl1Image(self, images):
         for img in images:
             q_image = self.numpyArrayToQImage(img)
             pixmap = QtGui.QPixmap.fromImage(q_image)
-            self.lime_result_img.setPixmap(pixmap)
-            self.lime_result_img.setScaledContents(True)
+            self.lime_result1_img.setPixmap(pixmap)
+            self.lime_result1_img.setScaledContents(True)
 
+    def setResutl2Image(self, images):
+        for img in images:
+            q_image = self.numpyArrayToQImage(img)
+            pixmap = QtGui.QPixmap.fromImage(q_image)
+            self.lime_result2_img.setPixmap(pixmap)
+            self.lime_result2_img.setScaledContents(True)
 
     def numpyArrayToQImage(self, numpy_array):
         height, width, channel = numpy_array.shape
@@ -2437,7 +2445,8 @@ class LimeThread(QtCore.QThread):
     change_value = QtCore.Signal(int)
     finished = QtCore.Signal(str)
     seg_img = QtCore.Signal(list)
-    result_img = QtCore.Signal(list)
+    result1_img = QtCore.Signal(list)
+    result2_img = QtCore.Signal(list)
     def run(self):
         self.change_value.emit(1)
 
@@ -2580,8 +2589,8 @@ class LimeThread(QtCore.QThread):
             inter_sp_coeff.append(temp_str)
             #show_explain = "\n".join(inter_sp_coeff)
 
-        top_feature = np.argsort(coeff)[-1:]
-        temp_str = "coefficient of top 1 class: " + str(coeff[top_feature])
+        top_feature = np.argsort(coeff)[-2:]
+        temp_str = "coefficient of top 2 classes: " + str(coeff[top_feature])
         inter_sp_coeff.append(temp_str)
         explain_result = "\n".join(inter_sp_coeff)
         self.change_value.emit(100)
@@ -2591,11 +2600,20 @@ class LimeThread(QtCore.QThread):
         inter_features = list(range(num_inter_feature))
         mask = np.zeros(final_num_SPs)
         mask[inter_features] = True
-
-        result_img = []
+        result1_img = []
         #int_img = ((image / 2 + 0.5) * 255).astype(np.uint8)
         mask_img = explain_lime.get_image_with_mask(image / 2 + 0.5, mask, interactive_SPs, coeff,mask_features = inter_features)
-        result_img.append((mask_img * 255).astype(np.uint8))
-        self.result_img.emit(result_img)
+        result1_img.append((mask_img * 255).astype(np.uint8))
+        self.result1_img.emit(result1_img)
+
+
+        mask = np.zeros(final_num_SPs)
+        mask[top_feature] = True
+        result2_img = []
+        #int_img = ((image / 2 + 0.5) * 255).astype(np.uint8)
+        mask_img = explain_lime.get_image_with_mask(image / 2 + 0.5, mask, interactive_SPs, coeff,mask_features = top_feature)
+        result2_img.append((mask_img * 255).astype(np.uint8))
+        self.result2_img.emit(result2_img)
+
 
         self.finished.emit(explain_result)
