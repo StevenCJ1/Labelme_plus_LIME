@@ -179,7 +179,7 @@ class MainWindow(QtWidgets.QMainWindow):
         sub_layout_lime.addWidget(self.lime_select_input)
         sub_layout_lime.addWidget(self.lime_button)
         layout_lime.addLayout(sub_layout_lime)
-        layout_lime.addWidget(self.progress_bar)  # 将进度条添加到布局中
+        layout_lime.addWidget(self.progress_bar)
         layout_lime.addWidget(self.lime_result)
 
 
@@ -189,6 +189,32 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.lime_widget.setLayout(layout_lime)
         self.lime_dock.setWidget(self.lime_widget)
+
+        #------------------------------------------------------------------------------#
+        self.lime_img_dock = QtWidgets.QDockWidget(self.tr("LIME Image"), self)
+        self.lime_img_dock.setObjectName("LIME")
+        self.lime_img_widget = QtWidgets.QWidget()
+
+        self.lime_seg_title = QtWidgets.QLabel("Interactively Segement")
+        self.lime_result_title = QtWidgets.QLabel("Explain Result")
+        self.lime_seg_img = QtWidgets.QLabel()
+        self.lime_result_img = QtWidgets.QLabel()
+
+        #layout_title = QtWidgets.QHBoxLayout()
+        layout_img = QtWidgets.QHBoxLayout()
+        layout_lime_img = QtWidgets.QVBoxLayout()
+
+        #layout_title.addWidget(self.lime_seg_title)
+        #layout_title.addWidget(self.lime_result_title)
+        layout_img.addWidget(self.lime_seg_img)
+        layout_img.addWidget(self.lime_result_img)
+
+        #layout_lime_img.addLayout(layout_title)
+        layout_lime_img.addLayout(layout_img)
+        #layout_lime_img.addStretch(1)
+
+        self.lime_img_widget.setLayout(layout_lime_img)
+        self.lime_img_dock.setWidget(self.lime_img_widget)
 
         #------------------------------------------------------------------------------#
 
@@ -294,6 +320,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.addDockWidget(Qt.RightDockWidgetArea, self.file_dock)
         self.addDockWidget(Qt.RightDockWidgetArea, self.pred_dock)
         self.addDockWidget(Qt.RightDockWidgetArea, self.lime_dock)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.lime_img_dock)
 
         # Actions
         action = functools.partial(utils.newAction, self)
@@ -806,6 +833,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.file_dock.toggleViewAction(),
                 self.pred_dock.toggleViewAction(),
                 self.lime_dock.toggleViewAction(),
+                self.lime_img_dock.toggleViewAction(),
                 None,
                 fill_drawing,
                 None,
@@ -2288,7 +2316,9 @@ class MainWindow(QtWidgets.QMainWindow):
             name = self._selectExplainedModelBox.currentText()
             model = self.selectExplainedModel(name)
             shape = explained_model.MODELS[idx].shape
-            preds_list = predict.explained_module_predict(self.image, num_top_guess=num_top_guess, model = model, shape = shape)
+            filename = self.filename
+            image_rgba = skimage.io.imread(filename)
+            preds_list = predict.explained_module_predict(image_rgba, num_top_guess=num_top_guess, model = model, shape = shape)
             #show_preds = f"show the type of image: {preds_list}"
 
             for i, pred_tuple in enumerate(preds_list):
@@ -2323,7 +2353,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         shapes = [format_shape(item.shape()) for item in self.labelList]
 
-        image_rgba = predict.convertQImageToMat(self.image)
+        #image_rgba = predict.convertQImageToMat(self.image)
+        filename = self.filename
+        image_rgba = skimage.io.imread(filename)
 
         if np.shape(image_rgba)[2] != 3:
             image = skimage.color.rgba2rgb(image_rgba)
@@ -2344,7 +2376,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # 创建并启动线程
         self.lime_thread = LimeThread(parent=self)
         self.lime_thread.change_value.connect(self.setProgressVal)
+        self.lime_thread.seg_img.connect(self.setSegImage)
+        self.lime_thread.result_img.connect(self.setResutlImage)
         self.lime_thread.finished.connect(self.setLimeResultVal)
+
         self.lime_thread.start()
 
     def setProgressVal(self, val):
@@ -2353,6 +2388,29 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def setLimeResultVal(self, result):
         self.lime_result.setText(result)
+
+    def setSegImage(self, images):
+        for img in images:
+            q_image = self.numpyArrayToQImage(img)
+            pixmap = QtGui.QPixmap.fromImage(q_image)
+            self.lime_seg_img.setPixmap(pixmap)
+            self.lime_seg_img.setScaledContents(True)
+
+    def setResutlImage(self, images):
+        for img in images:
+            q_image = self.numpyArrayToQImage(img)
+            pixmap = QtGui.QPixmap.fromImage(q_image)
+            self.lime_result_img.setPixmap(pixmap)
+            self.lime_result_img.setScaledContents(True)
+
+
+    def numpyArrayToQImage(self, numpy_array):
+        height, width, channel = numpy_array.shape
+        bytes_per_line = 3 * width
+        q_image = QtGui.QImage(numpy_array.data, width, height, bytes_per_line, QtGui.QImage.Format_RGB888)
+        return q_image
+
+
 
     def selectExplainedModel(self, name):
         match name:
@@ -2378,6 +2436,8 @@ class LimeThread(QtCore.QThread):
     # Create a counter thread
     change_value = QtCore.Signal(int)
     finished = QtCore.Signal(str)
+    seg_img = QtCore.Signal(list)
+    result_img = QtCore.Signal(list)
     def run(self):
         self.change_value.emit(1)
 
@@ -2398,7 +2458,11 @@ class LimeThread(QtCore.QThread):
 
         shapes = [format_shape(item.shape()) for item in self.parent().labelList]
 
-        image_rgba = predict.convertQImageToMat(self.parent().image)
+        filename = self.parent().filename
+        image_rgba = skimage.io.imread(filename)
+
+
+        #image_rgba = predict.convertQImageToMat(self.parent().image)
 
         if np.shape(image_rgba)[2] != 3:
             image = skimage.color.rgba2rgb(image_rgba)
@@ -2455,6 +2519,12 @@ class LimeThread(QtCore.QThread):
         '''
         # recover superpixels with interactively segmentation
         interactive_SPs, inter_label_name = explain_lime.mix_segment(lbl, label_names, segment_SPs, shape)
+        seg_img  = []
+
+        temp_img = (skimage.segmentation.mark_boundaries(image / 2 + 0.5, interactive_SPs) * 255).astype(np.uint8)
+        #temp_img = ((image / 2 + 0.5) * 255).astype(np.uint8)
+        seg_img.append(temp_img)
+        self.seg_img.emit(seg_img)
 
         final_num_SPs = np.unique(interactive_SPs).shape[0]
 
@@ -2517,5 +2587,15 @@ class LimeThread(QtCore.QThread):
         self.change_value.emit(100)
 
 
+        num_inter_feature = len(inter_label_name[:]) - 1
+        inter_features = list(range(num_inter_feature))
+        mask = np.zeros(final_num_SPs)
+        mask[inter_features] = True
+
+        result_img = []
+        #int_img = ((image / 2 + 0.5) * 255).astype(np.uint8)
+        mask_img = explain_lime.get_image_with_mask(image / 2 + 0.5, mask, interactive_SPs, coeff,mask_features = inter_features)
+        result_img.append((mask_img * 255).astype(np.uint8))
+        self.result_img.emit(result_img)
 
         self.finished.emit(explain_result)

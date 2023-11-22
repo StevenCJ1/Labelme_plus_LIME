@@ -13,16 +13,17 @@ from PyQt5.QtGui import QImage
 
 
 def convertQImageToMat(incomingImage):
+
     '''  Converts a QImage into an opencv MAT format  '''
 
-    incomingImage = incomingImage.convertToFormat(4)
+    incomingImage = incomingImage.convertToFormat(QImage.Format.Format_RGBA8888)
 
     width = incomingImage.width()
     height = incomingImage.height()
 
     ptr = incomingImage.bits()
-    ptr.setsize(incomingImage.byteCount())
-    arr = np.array(ptr).reshape(height, width, 4)  #  Copies the data
+    ptr.setsize(height * width * 4)
+    arr = np.frombuffer(ptr, np.uint8).reshape((height, width, 4))
     return arr
 
 def explained_module_predict(img, num_top_guess, model, shape):
@@ -30,7 +31,7 @@ def explained_module_predict(img, num_top_guess, model, shape):
     top_guesses = num_top_guess  # Integer, how many top-guesses to return.
 
 
-    image_rgba = convertQImageToMat(img)
+    image_rgba = img
 
     if np.shape(image_rgba)[2] != 3:
         image = skimage.color.rgba2rgb(image_rgba)
