@@ -1760,7 +1760,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.toggleActions(True)
         self.canvas.setFocus()
         self.status(str(self.tr("Loaded %s")) % osp.basename(str(filename)))
-        self.show_pred_button.setEnabled(True)
+        #self.show_pred_button.setEnabled(True)
         return True
 
     def resizeEvent(self, event):
@@ -2241,9 +2241,11 @@ class MainWindow(QtWidgets.QMainWindow):
         images = natsort.os_sorted(images)
         return images
 
+
+#---------------------------------------------------------------------------------------
     def updatePredButtonState(self):
         # Enable or disable the button based on whether there is text in the QLineEdit
-        self.show_pred_button.setEnabled(bool(self.pred_input_line.text()))
+        self.show_pred_button.setEnabled((self.image.isNull() == 0))
 
 
     def predictImage(self):
@@ -2273,7 +2275,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def updateLimeButtonState(self):
         # Enable or disable the button based on whether there is text in the QLineEdit
-        self.lime_button.setEnabled(bool(self.lime_select_input.text()))
+        self.lime_button.setEnabled(bool(self.lime_select_input.text()) & (self.image.isNull() == 0))
 
     def limeImage(self):
         input_i_class = self.lime_select_input.text()
