@@ -91,7 +91,7 @@ def get_num_segmentSPs(lbl, label_names, shape):
     return (shape * shape) // np.mean(sizeInterSpList)
 
 
-def get_image_with_mask(img, mask, segments, coefficients, mask_features):
+def get_image_with_mask(img, mask, segments, coefficients, mask_features, boundary):
     """
     Generates images and predictions in the neighborhood of this image.
 
@@ -127,7 +127,12 @@ def get_image_with_mask(img, mask, segments, coefficients, mask_features):
         # combine img and img_cyan using mask
         result = np.where(mask_3d == idx + 1, img_mask, result)
     result = np.where(result > 1, 1, result)
-    return result
+
+    if boundary == True:
+        result = (skimage.segmentation.mark_boundaries(result, segments) * 255).astype(np.uint8)
+        return result
+    else:
+        return (result * 255).astype(np.uint8)
 
 def coeff_to_alpha(coeff):
     '''
@@ -164,7 +169,7 @@ def inter_lime(image, lbl, label_names, i_class, top_guesses):
     function: slic segmentation
     '''
     # set a do-while loop to avoid the too few num_SPs
-    num_SPs = get_num_segmentSPs(lbl, label_names)
+    num_SPs = get_num_segmentSPs(lbl, label_names, shape=299)
     segment_SPs = skimage.segmentation.slic(image, n_segments=num_SPs, compactness=10)
     temp_num_SPs = num_SPs
     while np.unique(segment_SPs).shape[0] < num_SPs:
@@ -176,7 +181,7 @@ def inter_lime(image, lbl, label_names, i_class, top_guesses):
     mix segmentation from slic and interactively segmentation
     '''
     # recover superpixels with interactively segmentation
-    interactive_SPs, inter_label_name = mix_segment(lbl, label_names, segment_SPs)
+    interactive_SPs, inter_label_name = mix_segment(lbl, label_names, segment_SPs, shape=299)
 
     final_num_SPs = np.unique(interactive_SPs).shape[0]
 
@@ -232,6 +237,25 @@ def inter_lime(image, lbl, label_names, i_class, top_guesses):
     temp_str = "coefficient of top 1 class: " + str(coeff[top_feature])
     inter_sp_coeff.append(temp_str)
     show_explain = "\n".join(inter_sp_coeff)
+
+    '''
+    show the results
+    '''
+    top_features = np.argsort(coeff)[-num_top_features:]
+    print(top_features)
+    print('coefficient of top 2 classes: ', coeff[top_features])
+    num_inter_feature = len(inter_label_name[:]) - 1
+
+    for i in range(num_inter_feature):
+        print('coefficient of', inter_label_name[i + 1], coeff[i])
+
+    inter_features = list(range(num_inter_feature))
+    mask = np.zeros(final_num_SPs)
+    mask[inter_features] = True
+
+    plt.figure()
+    skimage.io.imshow(get_image_with_mask(image / 2 + 0.5, mask, interactive_SPs, coeff, mask_features = inter_features))
+    plt.show()
     return show_explain
 
 
@@ -256,25 +280,8 @@ if __name__ == "__main__":
     print(show_explain)
 
 
-'''
-    show the results
-    
-    top_features = np.argsort(coeff)[-num_top_features:]
-    print(top_features)
-    print('coefficient of top 2 classes: ', coeff[top_features])
-    num_inter_feature = len(inter_label_name[:]) - 1
-    
-    for i in range(num_inter_feature):
-        print('coefficient of', inter_label_name[i + 1], coeff[i])
 
-    inter_features = list(range(num_inter_feature))
-    mask = np.zeros(final_num_SPs)
-    mask[inter_features] = True
 
-    plt.figure()
-    skimage.io.imshow(get_image_with_mask(image / 2 + 0.5, mask, interactive_SPs, coeff, mask_features = inter_features))
-    plt.show()
-    '''
 
 
 

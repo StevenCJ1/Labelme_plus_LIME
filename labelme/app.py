@@ -2590,7 +2590,10 @@ class LimeThread(QtCore.QThread):
             #show_explain = "\n".join(inter_sp_coeff)
 
         top_feature = np.argsort(coeff)[-2:]
-        temp_str = "coefficient of top 2 classes: " + str(coeff[top_feature])
+        all_feature=np.linspace(0,final_num_SPs-1,final_num_SPs).astype(int)
+
+
+        temp_str = "coefficient of all classes: " + str(coeff[all_feature])
         inter_sp_coeff.append(temp_str)
         explain_result = "\n".join(inter_sp_coeff)
         self.change_value.emit(100)
@@ -2599,21 +2602,22 @@ class LimeThread(QtCore.QThread):
         num_inter_feature = len(inter_label_name[:]) - 1
         inter_features = list(range(num_inter_feature))
         mask = np.zeros(final_num_SPs)
-        mask[inter_features] = True
+        mask[all_feature] = True
         result1_img = []
         #int_img = ((image / 2 + 0.5) * 255).astype(np.uint8)
-        mask_img = explain_lime.get_image_with_mask(image / 2 + 0.5, mask, interactive_SPs, coeff,mask_features = inter_features)
-        result1_img.append((mask_img * 255).astype(np.uint8))
+        mask_img = explain_lime.get_image_with_mask(image / 2 + 0.5, mask, interactive_SPs, coeff,mask_features = all_feature, boundary=False)
+        result1_img.append(mask_img)
         self.result1_img.emit(result1_img)
 
 
+
         mask = np.zeros(final_num_SPs)
-        mask[top_feature] = True
+        mask[all_feature] = True
         result2_img = []
         #int_img = ((image / 2 + 0.5) * 255).astype(np.uint8)
-        mask_img = explain_lime.get_image_with_mask(image / 2 + 0.5, mask, interactive_SPs, coeff,mask_features = top_feature)
-        result2_img.append((mask_img * 255).astype(np.uint8))
+        mask_img = explain_lime.get_image_with_mask(image / 2 + 0.5, mask, interactive_SPs, coeff,mask_features = all_feature, boundary=True)
+        result2_img.append(mask_img)
+        #result2_img.append((mask_img * 255).astype(np.uint8))
         self.result2_img.emit(result2_img)
-
 
         self.finished.emit(explain_result)
