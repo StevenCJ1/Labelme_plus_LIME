@@ -195,24 +195,30 @@ class MainWindow(QtWidgets.QMainWindow):
         self.lime_img_dock.setObjectName("LIME")
         self.lime_img_widget = QtWidgets.QWidget()
 
-        self.lime_seg_title = QtWidgets.QLabel("Interactively Segement")
-        self.lime_result_title = QtWidgets.QLabel("Explain Result")
+        self.lime_sps_select_label = QtWidgets.QLabel("Number of superpixels with mask?(default all SPs)")
         self.lime_seg_img = QtWidgets.QLabel()
+        self.lime_sps_select_input = QtWidgets.QLineEdit()
+        self.lime_sps_select_button = QtWidgets.QPushButton("Show")
+        self.lime_sps_select_button.setEnabled(False)
+        self.lime_sps_select_button.clicked.connect(self.startLimeImgThread)
+        self.lime_sps_select_input.textChanged.connect(self.updateLimeImgButtonState)
+
         self.lime_result1_img = QtWidgets.QLabel()
         self.lime_result2_img = QtWidgets.QLabel()
 
-        #layout_title = QtWidgets.QHBoxLayout()
-        layout_img = QtWidgets.QHBoxLayout()
+        sub_layout_input = QtWidgets.QHBoxLayout()
+        sub_layout_img = QtWidgets.QHBoxLayout()
         layout_lime_img = QtWidgets.QVBoxLayout()
 
-        #layout_title.addWidget(self.lime_seg_title)
-        #layout_title.addWidget(self.lime_result_title)
-        layout_img.addWidget(self.lime_seg_img)
-        layout_img.addWidget(self.lime_result1_img)
-        layout_img.addWidget(self.lime_result2_img)
-        #layout_lime_img.addLayout(layout_title)
-        layout_lime_img.addLayout(layout_img)
-        #layout_lime_img.addStretch(1)
+        sub_layout_input.addWidget(self.lime_sps_select_label)
+        sub_layout_input.addWidget(self.lime_sps_select_input)
+        sub_layout_input.addWidget(self.lime_sps_select_button)
+        sub_layout_img.addWidget(self.lime_seg_img)
+        sub_layout_img.addWidget(self.lime_result1_img)
+        sub_layout_img.addWidget(self.lime_result2_img)
+        layout_lime_img.addLayout(sub_layout_input)
+        layout_lime_img.addLayout(sub_layout_img)
+
 
         self.lime_img_widget.setLayout(layout_lime_img)
         self.lime_img_dock.setWidget(self.lime_img_widget)
@@ -2331,11 +2337,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.info_label.setText(show_preds)
 
-
-    def updateLimeButtonState(self):
-        # Enable or disable the button based on whether there is text in the QLineEdit
-        self.lime_button.setEnabled(bool(self.lime_select_input.text()) & (self.image.isNull() == 0))
-
     def limeImage(self):
         input_i_class = self.lime_select_input.text()
         def format_shape(s):
@@ -2373,6 +2374,15 @@ class MainWindow(QtWidgets.QMainWindow):
         #self.lime_result.setText(explain_result)
         return explain_result
 
+    def updateLimeButtonState(self):
+        # Enable or disable the button based on whether there is text in the QLineEdit
+        self.lime_button.setEnabled(bool(self.lime_select_input.text()) & (self.image.isNull() == 0))
+
+    def updateLimeImgButtonState(self):
+        # Enable or disable the button based on whether there is text in the QLineEdit
+        self.lime_sps_select_button.setEnabled(bool(self.lime_sps_select_input.text()) & (self.image.isNull() == 0))
+
+
     def startLimeThread(self):
         # 创建并启动线程
         self.lime_thread = LimeThread(parent=self)
@@ -2384,8 +2394,17 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.lime_thread.start()
 
+    def startLimeImgThread(self):
+        # 创建lime的子进程
+        self.lime_sup_thread = LimeImgThread(parent=self.lime_thread)
+        #self.lime_sup_thread.result1_img.connect(self.setResutl1Image)
+        self.lime_sup_thread.result2_img.connect(self.setResutl2Image)
+
+        self.lime_sup_thread.start()
+
+
     def setProgressVal(self, val):
-        # 处理线程完成后的结果
+        # 处理线程处理中的结果
         self.progress_bar.setValue(val)
 
     def setLimeResultVal(self, result):
@@ -2497,8 +2516,9 @@ class LimeThread(QtCore.QThread):
         top_guesses = 5
         image = skimage.transform.resize(image, (shape, shape))
         image = (image - 0.5) * 2  # Inception pre-processing
+        self.image = image
         num_top_features = 2  # the number of top superpixels(coefficients) you want to see
-        num_perturb = 150  # number of perturbed points
+        num_perturb = 15  # number of perturbed points
         perturb_art = 0  # 0 -> random; 1 -> exactly
         #explained_model = keras.applications.inception_v3.InceptionV3()
 
@@ -2529,13 +2549,14 @@ class LimeThread(QtCore.QThread):
         # recover superpixels with interactively segmentation
         interactive_SPs, inter_label_name = explain_lime.mix_segment(lbl, label_names, segment_SPs, shape)
         seg_img  = []
+        self.interactive_SPs = interactive_SPs
 
         temp_img = (skimage.segmentation.mark_boundaries(image / 2 + 0.5, interactive_SPs) * 255).astype(np.uint8)
         #temp_img = ((image / 2 + 0.5) * 255).astype(np.uint8)
         seg_img.append(temp_img)
         self.seg_img.emit(seg_img)
 
-        final_num_SPs = np.unique(interactive_SPs).shape[0]
+        self.final_num_SPs = np.unique(interactive_SPs).shape[0]
 
 
         '''
@@ -2544,12 +2565,12 @@ class LimeThread(QtCore.QThread):
 
         if perturb_art == 0:
             # random perturbation
-            perturbations = np.random.binomial(1, 0.5, size=(num_perturb, final_num_SPs))
+            perturbations = np.random.binomial(1, 0.5, size=(num_perturb, self.final_num_SPs))
             perturbations[0, :] = 1
         else:
             # exactly perturbation
-            rows = 2 ** final_num_SPs
-            cols = final_num_SPs
+            rows = 2 ** self.final_num_SPs
+            cols = self.final_num_SPs
             binary_matrix = [[1 if ((i >> j) & 1) else 0 for j in range(cols)] for i in range(rows)]
             perturbations = np.array(binary_matrix)
 
@@ -2565,7 +2586,7 @@ class LimeThread(QtCore.QThread):
         predictions = np.array(predictions)
 
         # calculate the distance
-        original_image = np.ones(final_num_SPs)[np.newaxis, :]  # Perturbation with all superpixels enabled
+        original_image = np.ones(self.final_num_SPs)[np.newaxis, :]  # Perturbation with all superpixels enabled
         distances = sklearn.metrics.pairwise_distances(perturbations, original_image, metric='cosine').ravel()
         kernel_width = 0.25
         weights = np.sqrt(np.exp(-(distances ** 2) / kernel_width ** 2))
@@ -2579,6 +2600,7 @@ class LimeThread(QtCore.QThread):
         simple_model = LinearRegression()
         simple_model.fit(X=perturbations, y=predictions[:, :, explained_class], sample_weight=weights)
         coeff = simple_model.coef_[0]
+        self.coeff = coeff
 
         temp_str = 'Explaining prediction: ' + str(explained_class_name)
         inter_sp_coeff.append(temp_str)
@@ -2590,7 +2612,7 @@ class LimeThread(QtCore.QThread):
             #show_explain = "\n".join(inter_sp_coeff)
 
         top_feature = np.argsort(coeff)[-2:]
-        all_feature=np.linspace(0,final_num_SPs-1,final_num_SPs).astype(int)
+        all_feature=np.argsort(coeff)[:]
 
 
         temp_str = "coefficient of all classes: " + str(coeff[all_feature])
@@ -2599,25 +2621,71 @@ class LimeThread(QtCore.QThread):
         self.change_value.emit(100)
 
 
+        def coeff_to_alpha(coeff):
+            '''
+            Alpha is depend on the rank of coefficients.
+            '''
+            if np.size(coeff) == 1:
+                return np.array([0.7])
+            step = np.arange(0.3, 1, 0.7/np.size(coeff))
+            ranks = coeff.argsort()
+            ranks = ranks.argsort()
+            alpha = step[ranks]
+
+            return alpha
+
+        alpha = coeff_to_alpha(np.absolute(coeff))
+
         num_inter_feature = len(inter_label_name[:]) - 1
         inter_features = list(range(num_inter_feature))
-        mask = np.zeros(final_num_SPs)
+        mask = np.zeros(self.final_num_SPs)
         mask[all_feature] = True
         result1_img = []
         #int_img = ((image / 2 + 0.5) * 255).astype(np.uint8)
-        mask_img = explain_lime.get_image_with_mask(image / 2 + 0.5, mask, interactive_SPs, coeff,mask_features = all_feature, boundary=False)
+        mask_img = explain_lime.get_image_with_mask(image / 2 + 0.5, mask, interactive_SPs, coeff,mask_features = all_feature, boundary=False,alpha=alpha)
         result1_img.append(mask_img)
         self.result1_img.emit(result1_img)
 
 
 
-        mask = np.zeros(final_num_SPs)
+        mask = np.zeros(self.final_num_SPs)
         mask[all_feature] = True
         result2_img = []
         #int_img = ((image / 2 + 0.5) * 255).astype(np.uint8)
-        mask_img = explain_lime.get_image_with_mask(image / 2 + 0.5, mask, interactive_SPs, coeff,mask_features = all_feature, boundary=True)
+        mask_img = explain_lime.get_image_with_mask(image / 2 + 0.5, mask, interactive_SPs, coeff,mask_features = all_feature, boundary=True,alpha=alpha)
         result2_img.append(mask_img)
         #result2_img.append((mask_img * 255).astype(np.uint8))
         self.result2_img.emit(result2_img)
 
         self.finished.emit(explain_result)
+
+class LimeImgThread(QtCore.QThread):
+    result2_img = QtCore.Signal(list)
+    def run(self):
+        def coeff_to_alpha(coeff):
+            '''
+            Alpha is depend on the rank of coefficients.
+            '''
+            if np.size(coeff) == 1:
+                return np.array([0.7])
+            step = np.arange(0.3, 1, 0.7/np.size(coeff))
+            ranks = coeff.argsort()
+            ranks = ranks.argsort()
+            alpha = step[ranks]
+
+            return alpha
+        num_top_features = self.parent().parent().lime_sps_select_input.text()
+        top_features = np.argsort(self.parent().coeff)[-int(num_top_features):]
+
+        mask = np.zeros(self.parent().final_num_SPs)
+        mask[top_features] = True
+        result2_img = []
+        alpha = coeff_to_alpha(np.absolute(self.parent().coeff))
+        mask_img = explain_lime.get_image_with_mask(self.parent().image / 2 + 0.5, mask,
+                                                    self.parent().interactive_SPs,
+                                                    self.parent().coeff,
+                                                    mask_features = top_features,
+                                                    boundary=False,
+                                                    alpha=alpha)
+        result2_img.append(mask_img)
+        self.result2_img.emit(result2_img)

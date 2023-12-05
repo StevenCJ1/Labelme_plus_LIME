@@ -91,7 +91,7 @@ def get_num_segmentSPs(lbl, label_names, shape):
     return (shape * shape) // np.mean(sizeInterSpList)
 
 
-def get_image_with_mask(img, mask, segments, coefficients, mask_features, boundary):
+def get_image_with_mask(img, mask, segments, coefficients, mask_features, boundary,alpha):
     """
     Generates images and predictions in the neighborhood of this image.
 
@@ -113,7 +113,7 @@ def get_image_with_mask(img, mask, segments, coefficients, mask_features, bounda
     red = np.full_like(img,(1,0,0))
     result = img
 
-    alpha = coeff_to_alpha(np.absolute(coefficients))
+    #alpha = coeff_to_alpha(np.absolute(coefficients))
 
     mask_coeff = coefficients[mask_features]
     alpha = alpha[mask_features]
