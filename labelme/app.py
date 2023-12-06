@@ -195,13 +195,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.lime_img_dock.setObjectName("LIME")
         self.lime_img_widget = QtWidgets.QWidget()
 
-        self.lime_sps_select_label = QtWidgets.QLabel("Number of superpixels with mask?(default all SPs)")
+        self.lime_sps_select_label1 = QtWidgets.QLabel("Number of positive superpixels with mask?(Max = ")
+        self.lime_sps_select_label1_max = QtWidgets.QLabel("")
+        self.lime_sps_select_label2 = QtWidgets.QLabel("Number of negative superpixels with mask?(default = 0, Max = ")
+        self.lime_sps_select_label2_max = QtWidgets.QLabel("")
         self.lime_seg_img = QtWidgets.QLabel()
-        self.lime_sps_select_input = QtWidgets.QLineEdit()
+        self.lime_sps_select_input_pos = QtWidgets.QLineEdit()
+        self.lime_sps_select_input_neg = QtWidgets.QLineEdit()
         self.lime_sps_select_button = QtWidgets.QPushButton("Show")
         self.lime_sps_select_button.setEnabled(False)
         self.lime_sps_select_button.clicked.connect(self.startLimeImgThread)
-        self.lime_sps_select_input.textChanged.connect(self.updateLimeImgButtonState)
+        self.lime_sps_select_input_pos.textChanged.connect(self.updateLimeImgButtonState)
 
         self.lime_result1_img = QtWidgets.QLabel()
         self.lime_result2_img = QtWidgets.QLabel()
@@ -210,8 +214,12 @@ class MainWindow(QtWidgets.QMainWindow):
         sub_layout_img = QtWidgets.QHBoxLayout()
         layout_lime_img = QtWidgets.QVBoxLayout()
 
-        sub_layout_input.addWidget(self.lime_sps_select_label)
-        sub_layout_input.addWidget(self.lime_sps_select_input)
+        sub_layout_input.addWidget(self.lime_sps_select_label1)
+        sub_layout_input.addWidget(self.lime_sps_select_label1_max)
+        sub_layout_input.addWidget(self.lime_sps_select_input_pos)
+        sub_layout_input.addWidget(self.lime_sps_select_label2)
+        sub_layout_input.addWidget(self.lime_sps_select_label2_max)
+        sub_layout_input.addWidget(self.lime_sps_select_input_neg)
         sub_layout_input.addWidget(self.lime_sps_select_button)
         sub_layout_img.addWidget(self.lime_seg_img)
         sub_layout_img.addWidget(self.lime_result1_img)
@@ -2380,7 +2388,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def updateLimeImgButtonState(self):
         # Enable or disable the button based on whether there is text in the QLineEdit
-        self.lime_sps_select_button.setEnabled(bool(self.lime_sps_select_input.text()) & (self.image.isNull() == 0))
+        self.lime_sps_select_button.setEnabled(bool(self.lime_sps_select_input_pos.text()) & (self.image.isNull() == 0))
 
 
     def startLimeThread(self):
@@ -2392,12 +2400,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.lime_thread.result2_img.connect(self.setResutl2Image)
         self.lime_thread.finished.connect(self.setLimeResultVal)
 
+        self.lime_thread.num_pos_sps.connect(self.setLabel1Max)
+        self.lime_thread.num_neg_sps.connect(self.setLabel2Max)
+
         self.lime_thread.start()
 
     def startLimeImgThread(self):
         # 创建lime的子进程
         self.lime_sup_thread = LimeImgThread(parent=self.lime_thread)
-        #self.lime_sup_thread.result1_img.connect(self.setResutl1Image)
         self.lime_sup_thread.result2_img.connect(self.setResutl2Image)
 
         self.lime_sup_thread.start()
@@ -2409,6 +2419,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def setLimeResultVal(self, result):
         self.lime_result.setText(result)
+
+    def setLabel1Max(self, result):
+        self.lime_sps_select_label1_max.setText(result)
+    def setLabel2Max(self, result):
+        self.lime_sps_select_label2_max.setText(result)
 
     def setSegImage(self, images):
         for img in images:
@@ -2466,6 +2481,8 @@ class LimeThread(QtCore.QThread):
     seg_img = QtCore.Signal(list)
     result1_img = QtCore.Signal(list)
     result2_img = QtCore.Signal(list)
+    num_pos_sps = QtCore.Signal(str)
+    num_neg_sps = QtCore.Signal(str)
     def run(self):
         self.change_value.emit(1)
 
@@ -2602,6 +2619,9 @@ class LimeThread(QtCore.QThread):
         coeff = simple_model.coef_[0]
         self.coeff = coeff
 
+        self.num_pos_sps.emit(str(np.sum(coeff>=0)) + ')')
+        self.num_neg_sps.emit(str(np.sum(coeff<0)) + ')')
+
         temp_str = 'Explaining prediction: ' + str(explained_class_name)
         inter_sp_coeff.append(temp_str)
 
@@ -2642,7 +2662,7 @@ class LimeThread(QtCore.QThread):
         mask[all_feature] = True
         result1_img = []
         #int_img = ((image / 2 + 0.5) * 255).astype(np.uint8)
-        mask_img = explain_lime.get_image_with_mask(image / 2 + 0.5, mask, interactive_SPs, coeff,mask_features = all_feature, boundary=False,alpha=alpha)
+        mask_img = explain_lime.get_image_with_mask(image / 2 + 0.5, mask, interactive_SPs, coeff, boundary=False,alpha=alpha)
         result1_img.append(mask_img)
         self.result1_img.emit(result1_img)
 
@@ -2652,7 +2672,7 @@ class LimeThread(QtCore.QThread):
         mask[all_feature] = True
         result2_img = []
         #int_img = ((image / 2 + 0.5) * 255).astype(np.uint8)
-        mask_img = explain_lime.get_image_with_mask(image / 2 + 0.5, mask, interactive_SPs, coeff,mask_features = all_feature, boundary=True,alpha=alpha)
+        mask_img = explain_lime.get_image_with_mask(image / 2 + 0.5, mask, interactive_SPs, coeff, boundary=True,alpha=alpha)
         result2_img.append(mask_img)
         #result2_img.append((mask_img * 255).astype(np.uint8))
         self.result2_img.emit(result2_img)
@@ -2674,17 +2694,26 @@ class LimeImgThread(QtCore.QThread):
             alpha = step[ranks]
 
             return alpha
-        num_top_features = self.parent().parent().lime_sps_select_input.text()
-        top_features = np.argsort(self.parent().coeff)[-int(num_top_features):]
+        
+        num_top_pos_features = self.parent().parent().lime_sps_select_input_pos.text()
 
+        if bool(self.parent().parent().lime_sps_select_input_neg.text()):
+            num_top_neg_features = self.parent().parent().lime_sps_select_input_neg.text()
+        else:
+            num_top_neg_features = 0
+
+
+        top_pos_features = np.argsort(self.parent().coeff)[-int(num_top_pos_features):]
+        top_neg_features = np.argsort(self.parent().coeff)[:int(num_top_neg_features)]
+
+        select_features = np.append(top_pos_features,top_neg_features)
         mask = np.zeros(self.parent().final_num_SPs)
-        mask[top_features] = True
+        mask[select_features] = True
         result2_img = []
         alpha = coeff_to_alpha(np.absolute(self.parent().coeff))
         mask_img = explain_lime.get_image_with_mask(self.parent().image / 2 + 0.5, mask,
                                                     self.parent().interactive_SPs,
                                                     self.parent().coeff,
-                                                    mask_features = top_features,
                                                     boundary=False,
                                                     alpha=alpha)
         result2_img.append(mask_img)

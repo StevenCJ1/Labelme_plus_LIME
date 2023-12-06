@@ -6,7 +6,7 @@ import skimage.io
 import skimage.color
 import skimage.segmentation
 import matplotlib
-matplotlib.use('TkAgg')
+#matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import copy
 import sklearn.metrics
@@ -91,7 +91,7 @@ def get_num_segmentSPs(lbl, label_names, shape):
     return (shape * shape) // np.mean(sizeInterSpList)
 
 
-def get_image_with_mask(img, mask, segments, coefficients, mask_features, boundary,alpha):
+def get_image_with_mask(img, mask, segments, coefficients, boundary,alpha):
     """
     Generates images and predictions in the neighborhood of this image.
 
@@ -115,8 +115,8 @@ def get_image_with_mask(img, mask, segments, coefficients, mask_features, bounda
 
     #alpha = coeff_to_alpha(np.absolute(coefficients))
 
-    mask_coeff = coefficients[mask_features]
-    alpha = alpha[mask_features]
+    mask_coeff = coefficients[active_pixels]
+    alpha = alpha[active_pixels]
     for idx, coeff in enumerate(mask_coeff):
         if coeff >= 0:
             mask_color = green
