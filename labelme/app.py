@@ -2694,7 +2694,7 @@ class LimeImgThread(QtCore.QThread):
             alpha = step[ranks]
 
             return alpha
-        
+
         num_top_pos_features = self.parent().parent().lime_sps_select_input_pos.text()
 
         if bool(self.parent().parent().lime_sps_select_input_neg.text()):
