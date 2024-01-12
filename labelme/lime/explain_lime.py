@@ -67,6 +67,24 @@ def mix_segment(lbl, label_names, superpixels, shape):
             accumulateSPs = np.where(accumulateSPs > i, accumulateSPs - dist, accumulateSPs)
         else:
             i = i + 1
+    # 消除mix之后的“飞地”
+    for (i, segVal) in enumerate(np.unique(accumulateSPs)):
+        #mask = np.zeros(accumulateSPs.shape[:2], dtype="uint8")
+        mask = accumulateSPs == segVal
+        num_components, labels, stats, centroids =cv2.connectedComponentsWithStats(mask.astype(np.uint8))
+        if num_components > 2:
+            #print(num_components)
+            main_land_label = stats[1:, -1].argmax() + 1
+            for ex_label in range(1,num_components):
+                if ex_label != main_land_label:
+                    coords = np.column_stack(np.where(labels == ex_label))
+
+                    if coords[-1, 0] + 1 <= shape & coords[-1, 1] + 1 <= shape:
+                        max_neig_value = accumulateSPs[coords[-1, 0] + 1 , coords[-1, 1] + 1]  # find the value of neighborhood
+                        accumulateSPs[coords[:, 0], coords[:, 1]] = max_neig_value
+                    else:
+                        min_neig_value = accumulateSPs[coords[0, 0] - 1 , coords[0, 1] - 1]
+                        accumulateSPs[coords[:, 0], coords[:, 1]] = min_neig_value
     return accumulateSPs, interactive_names
 
 

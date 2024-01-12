@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-
+import copy
 import functools
 import html
 import math
@@ -15,6 +15,7 @@ from sklearn.linear_model import LinearRegression
 import skimage.io
 import skimage.color
 import skimage.segmentation
+import cv2
 
 import imgviz
 import natsort
@@ -48,6 +49,7 @@ from labelme.lime import predict
 from labelme.lime import shape2label
 from labelme.lime import explain_lime
 from labelme.lime import explained_model
+
 
 
 # FIXME
@@ -2533,7 +2535,8 @@ class LimeThread(QtCore.QThread):
         top_guesses = 5
         image = skimage.transform.resize(image, (shape, shape))
         image = (image - 0.5) * 2  # Inception pre-processing
-        self.image = image
+        self.image = copy.deepcopy(image)
+        self.image_with_num = copy.deepcopy(image)
         num_top_features = 2  # the number of top superpixels(coefficients) you want to see
         num_perturb = 15  # number of perturbed points
         perturb_art = 0  # 0 -> random; 1 -> exactly
@@ -2543,7 +2546,7 @@ class LimeThread(QtCore.QThread):
         module prediction
         '''
         #np.random.seed(222)
-        preds = model_fun.predict(image[np.newaxis, :, :, :], verbose = 0)
+        preds = model_fun.predict(self.image[np.newaxis, :, :, :], verbose = 0)
         top_pred_classes = preds[0].argsort()[-top_guesses:][::-1]
 
         self.change_value.emit(3)
@@ -2553,11 +2556,11 @@ class LimeThread(QtCore.QThread):
         '''
         # set a do-while loop to avoid the too few num_SPs
         num_SPs = explain_lime.get_num_segmentSPs(lbl, label_names, shape)
-        segment_SPs = skimage.segmentation.slic(image, n_segments=num_SPs, compactness=10)
+        segment_SPs = skimage.segmentation.slic(self.image, n_segments=num_SPs, compactness=10)
         temp_num_SPs = num_SPs
         while np.unique(segment_SPs).shape[0] < num_SPs:
             temp_num_SPs = temp_num_SPs + temp_num_SPs // 2
-            segment_SPs = skimage.segmentation.slic(image, n_segments=temp_num_SPs, compactness=10)
+            segment_SPs = skimage.segmentation.slic(self.image, n_segments=temp_num_SPs, compactness=10)
 
         self.change_value.emit(4)
         '''
@@ -2568,7 +2571,27 @@ class LimeThread(QtCore.QThread):
         seg_img  = []
         self.interactive_SPs = interactive_SPs
 
-        temp_img = (skimage.segmentation.mark_boundaries(image / 2 + 0.5, interactive_SPs) * 255).astype(np.uint8)
+        # Set the num to each SPs
+        final_num_SPs = np.unique(interactive_SPs).shape[0]
+
+
+        # 为每个超像素分配标号并在图像上显示
+        for (i, segVal) in enumerate(np.unique(interactive_SPs)):
+            # 计算超像素区域的中心点
+            mask = np.zeros(self.image_with_num.shape[:2], dtype="uint8")
+            mask[interactive_SPs == segVal] = 255
+            coords = np.column_stack(np.where(mask > 0))
+            center = coords.mean(axis=0).astype("int")
+
+            if mask[center[0], center[1]] == 0:
+                random_index = np.random.randint(0, coords.shape[0])
+                random_coord = coords[random_index, :]
+                center = random_coord
+
+            cv2.putText(self.image_with_num, str(i), (center[1], center[0]),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (1, 0, 0), 1)
+
+        temp_img = (skimage.segmentation.mark_boundaries(self.image_with_num / 2 + 0.5, interactive_SPs) * 255).astype(np.uint8)
         #temp_img = ((image / 2 + 0.5) * 255).astype(np.uint8)
         seg_img.append(temp_img)
         self.seg_img.emit(seg_img)
@@ -2595,7 +2618,7 @@ class LimeThread(QtCore.QThread):
         # new training images for LIME
         predictions = []
         for cnt, pert in enumerate(perturbations):
-            perturbedImage = explain_lime.perturb_image(image, pert, interactive_SPs)
+            perturbedImage = explain_lime.perturb_image(self.image, pert, interactive_SPs)
             pred = model_fun.predict(perturbedImage[np.newaxis, :, :, :], verbose = 0)
             predictions.append(pred)
 
@@ -2662,7 +2685,7 @@ class LimeThread(QtCore.QThread):
         mask[all_feature] = True
         result1_img = []
         #int_img = ((image / 2 + 0.5) * 255).astype(np.uint8)
-        mask_img = explain_lime.get_image_with_mask(image / 2 + 0.5, mask, interactive_SPs, coeff, boundary=False,alpha=alpha)
+        mask_img = explain_lime.get_image_with_mask(self.image / 2 + 0.5, mask, interactive_SPs, coeff, boundary=False,alpha=alpha)
         result1_img.append(mask_img)
         self.result1_img.emit(result1_img)
 
@@ -2672,7 +2695,7 @@ class LimeThread(QtCore.QThread):
         mask[all_feature] = True
         result2_img = []
         #int_img = ((image / 2 + 0.5) * 255).astype(np.uint8)
-        mask_img = explain_lime.get_image_with_mask(image / 2 + 0.5, mask, interactive_SPs, coeff, boundary=True,alpha=alpha)
+        mask_img = explain_lime.get_image_with_mask(self.image / 2 + 0.5, mask, interactive_SPs, coeff, boundary=True,alpha=alpha)
         result2_img.append(mask_img)
         #result2_img.append((mask_img * 255).astype(np.uint8))
         self.result2_img.emit(result2_img)
