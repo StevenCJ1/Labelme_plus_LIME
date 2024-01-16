@@ -2522,7 +2522,7 @@ class LimeThread(QtCore.QThread):
         )
         lbl, label_names = shape2label.convert_shapes(data)
 
-        self.change_value.emit(2)
+
 
         idx = self.parent()._selectExplainedModelBox.currentIndex()
         name = self.parent()._selectExplainedModelBox.currentText()
@@ -2538,18 +2538,19 @@ class LimeThread(QtCore.QThread):
         self.image = copy.deepcopy(image)
         self.image_with_num = copy.deepcopy(image)
         num_top_features = 2  # the number of top superpixels(coefficients) you want to see
-        num_perturb = 15  # number of perturbed points
+        num_perturb = 150  # number of perturbed points
         perturb_art = 0  # 0 -> random; 1 -> exactly
         #explained_model = keras.applications.inception_v3.InceptionV3()
-
+        self.change_value.emit(2)
         '''
         module prediction
         '''
         #np.random.seed(222)
         preds = model_fun.predict(self.image[np.newaxis, :, :, :], verbose = 0)
+        self.change_value.emit(3)
         top_pred_classes = preds[0].argsort()[-top_guesses:][::-1]
 
-        self.change_value.emit(3)
+
         '''
         LIME-segmentation the image
         function: slic segmentation
