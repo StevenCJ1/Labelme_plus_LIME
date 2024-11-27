@@ -14,7 +14,11 @@ from sklearn.linear_model import LinearRegression
 import warnings
 import cv2
 from labelme.lime import test
+import torch
+from PIL import Image, ImageFilter
+from torchvision import transforms
 
+import time
 
 
 
@@ -36,8 +40,43 @@ def perturb_image(img, perturbation, segments):
     perturbed_image = perturbed_image * mask[:, :, np.newaxis]
     return perturbed_image
 
+def unc_perturb_image(img, perturbation, segments):
+    """
+    Generates images and predictions in the neighborhood of this image.
 
-def mix_segment(lbl, label_names, superpixels, shape):
+    input: image: 3d numpy array, the image
+           perturbation: the marks of numpy array [0, 1]
+           segments: segmentation of the image
+
+    return: perturbed_image
+    """
+    def center_perturbation(numpy_array):
+        # 将NumPy数组转换为PIL图像
+        pil_image = Image.fromarray(np.uint8(numpy_array))
+
+        # 创建中心裁剪的transform
+        center_crop = transforms.CenterCrop(224)
+
+        # 应用中心裁剪
+        cropped_image = center_crop(pil_image)
+
+        # 如果需要，再将PIL图像转换回NumPy数组
+        cropped_numpy_array = np.array(cropped_image)
+
+        # 如果原始数组是归一化到[0, 1]的，再次归一化转换后的数组
+        cropped_numpy_array = cropped_numpy_array
+        return cropped_numpy_array
+    segments = center_perturbation(segments)
+    active_pixels = np.where(perturbation == 1)[0]
+    mask = np.zeros(segments.shape)
+    for active in active_pixels:
+        mask[segments == active] = 1
+    perturbed_image = copy.deepcopy(img)
+    perturbed_image = perturbed_image * mask[np.newaxis, :, :]
+    return perturbed_image.float()
+
+
+def mix_segment(lbl, label_names, superpixels,shape):
     """
     Mix the segmentation from SLIC and labelme.exe(users)
 
@@ -48,8 +87,7 @@ def mix_segment(lbl, label_names, superpixels, shape):
             interactive_names: the name that user mark in labelme.exe
     """
     accumulateSPs = superpixels
-    interactive_SPs = lbl
-    interactive_names = label_names
+    interactive_SPs, interactive_names = lbl, label_names
     # We have to use the reserve array seq[::-1]
     # seq[start:stop:step] => a slice from start to stop, stepping step each time.
     for i in np.unique(interactive_SPs)[1:][::-1]:
@@ -67,6 +105,7 @@ def mix_segment(lbl, label_names, superpixels, shape):
             accumulateSPs = np.where(accumulateSPs > i, accumulateSPs - dist, accumulateSPs)
         else:
             i = i + 1
+    '''
     # 消除mix之后的“飞地”
     for (i, segVal) in enumerate(np.unique(accumulateSPs)):
         #mask = np.zeros(accumulateSPs.shape[:2], dtype="uint8")
@@ -85,6 +124,7 @@ def mix_segment(lbl, label_names, superpixels, shape):
                     else:
                         min_neig_value = accumulateSPs[coords[0, 0] - 1 , coords[0, 1] - 1]
                         accumulateSPs[coords[:, 0], coords[:, 1]] = min_neig_value
+    '''
     return accumulateSPs, interactive_names
 
 

@@ -9,3 +9,5 @@
 
 .DS_Store
 .idea/
+
+/labelme/lime/Imagenet

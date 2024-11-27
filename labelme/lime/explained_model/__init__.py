@@ -32,5 +32,8 @@ MODELS = [
     Model(
         name="MobileNetV2", shape=224,
     ),
+    Model(
+        name="Ensemble ResNet50", shape=224,
+    ),
 ]
 

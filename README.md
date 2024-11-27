@@ -6,11 +6,13 @@ You need install [Anaconda](https://www.continuum.io/downloads), then run below:
 
 ```bash
 # python3
-conda env create -f environment.yml
+conda env create --name envname --file=environments.yml
+conda activate lime_labelme
 ```
 
 ## Usage
-
+Before running the following command, 
+first copy the file from .../labelme/labelme/__main__.py to .../labelme/__main__.py path. Then in .../labelme/__main__.py path to run the
 
 ```bash
 python3 __main__.py

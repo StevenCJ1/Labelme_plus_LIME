@@ -49,6 +49,7 @@ from labelme.lime import predict
 from labelme.lime import shape2label
 from labelme.lime import explain_lime
 from labelme.lime import explained_model
+from labelme.lime import models_cluster
 
 
 
@@ -193,6 +194,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.lime_dock.setWidget(self.lime_widget)
 
         #------------------------------------------------------------------------------#
+
         self.lime_img_dock = QtWidgets.QDockWidget(self.tr("LIME Image"), self)
         self.lime_img_dock.setObjectName("LIME")
         self.lime_img_widget = QtWidgets.QWidget()
@@ -2331,21 +2333,24 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             idx = self._selectExplainedModelBox.currentIndex()
             name = self._selectExplainedModelBox.currentText()
-            model = self.selectExplainedModel(name)
-            shape = explained_model.MODELS[idx].shape
             filename = self.filename
-            image_rgba = skimage.io.imread(filename)
-            preds_list = predict.explained_module_predict(image_rgba, num_top_guess=num_top_guess, model = model, shape = shape)
-            #show_preds = f"show the type of image: {preds_list}"
+            if name == 'Ensemble ResNet50':
+                self.startEnsembleThread()
+            else:
+                model = self.selectExplainedModel(name)
+                shape = explained_model.MODELS[idx].shape
+                image_rgba = skimage.io.imread(filename)
+                preds_list = predict.explained_module_predict(image_rgba, num_top_guess=num_top_guess, model = model, shape = shape)
+                #show_preds = f"show the type of image: {preds_list}"
 
-            for i, pred_tuple in enumerate(preds_list):
-                pred_class = pred_tuple[1]
-                pred_prob = pred_tuple[2]
-                pred = str(i + 1) + ". " + pred_class + "  " + str(pred_prob)
-                new_preds_list.append(pred)
-                show_preds = "\n".join(new_preds_list)
+                for i, pred_tuple in enumerate(preds_list):
+                    pred_class = pred_tuple[1]
+                    pred_prob = pred_tuple[2]
+                    pred = str(i + 1) + ". " + pred_class + "  " + str(pred_prob)
+                    new_preds_list.append(pred)
+                    show_preds = "\n".join(new_preds_list)
 
-        self.info_label.setText(show_preds)
+                self.info_label.setText(show_preds)
 
     def limeImage(self):
         input_i_class = self.lime_select_input.text()
@@ -2394,18 +2399,32 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
     def startLimeThread(self):
-        # 创建并启动线程
-        self.lime_thread = LimeThread(parent=self)
-        self.lime_thread.change_value.connect(self.setProgressVal)
-        self.lime_thread.seg_img.connect(self.setSegImage)
-        self.lime_thread.result1_img.connect(self.setResutl1Image)
-        self.lime_thread.result2_img.connect(self.setResutl2Image)
-        self.lime_thread.finished.connect(self.setLimeResultVal)
 
-        self.lime_thread.num_pos_sps.connect(self.setLabel1Max)
-        self.lime_thread.num_neg_sps.connect(self.setLabel2Max)
+        name = self._selectExplainedModelBox.currentText()
+        if name == 'Ensemble ResNet50':
+            self.unc_lime_thread = models_cluster.UncLimeThread(parent=self)
+            self.unc_lime_thread.change_value.connect(self.setProgressVal)
+            self.unc_lime_thread.seg_img.connect(self.setSegImage)
+            self.unc_lime_thread.result1_img.connect(self.setResutl1uncImage)
+            self.unc_lime_thread.result2_img.connect(self.setResutl2Image)
+            self.unc_lime_thread.finished.connect(self.setLimeResultVal)
 
-        self.lime_thread.start()
+            self.unc_lime_thread.num_pos_sps.connect(self.setLabel1Max)
+            self.unc_lime_thread.num_neg_sps.connect(self.setLabel2Max)
+
+            self.unc_lime_thread.start()
+        else:
+            self.lime_thread = LimeThread(parent=self)
+            self.lime_thread.change_value.connect(self.setProgressVal)
+            self.lime_thread.seg_img.connect(self.setSegImage)
+            self.lime_thread.result1_img.connect(self.setResutl1Image)
+            self.lime_thread.result2_img.connect(self.setResutl2Image)
+            self.lime_thread.finished.connect(self.setLimeResultVal)
+
+            self.lime_thread.num_pos_sps.connect(self.setLabel1Max)
+            self.lime_thread.num_neg_sps.connect(self.setLabel2Max)
+
+            self.lime_thread.start()
 
     def startLimeImgThread(self):
         # 创建lime的子进程
@@ -2441,6 +2460,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self.lime_result1_img.setPixmap(pixmap)
             self.lime_result1_img.setScaledContents(True)
 
+    def setResutl1uncImage(self, images):
+        for img in images:
+            q_image = self.violin_to_qimage(img)
+            pixmap = QtGui.QPixmap.fromImage(q_image)
+            self.lime_result1_img.setPixmap(pixmap)
+            self.lime_result1_img.setScaledContents(True)
+
     def setResutl2Image(self, images):
         for img in images:
             q_image = self.numpyArrayToQImage(img)
@@ -2454,6 +2480,11 @@ class MainWindow(QtWidgets.QMainWindow):
         q_image = QtGui.QImage(numpy_array.data, width, height, bytes_per_line, QtGui.QImage.Format_RGB888)
         return q_image
 
+    def violin_to_qimage(self, numpy_array):
+        height, width, channel = numpy_array.shape
+        bytes_per_line = 3 * width
+        q_image = QtGui.QImage(numpy_array.tobytes(), width, height, bytes_per_line, QtGui.QImage.Format_RGB888)
+        return q_image
 
 
     def selectExplainedModel(self, name):
@@ -2474,6 +2505,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 return keras.applications.MobileNet()
             case "MobileNetV2":
                 return keras.applications.MobileNetV2()
+
+    def startEnsembleThread(self):
+        # 创建并启动线程
+        self.ensemble_thread = models_cluster.EnsembleThread(parent=self)
+        self.ensemble_thread.pred_results.connect(self.setEnsembleResultVal)
+        self.ensemble_thread.start()
+
+    def setEnsembleResultVal(self, result):
+        self.info_label.setText(result)
 
 
 class LimeThread(QtCore.QThread):
